@@ -1,0 +1,224 @@
+version: '3'
+services:
+  turingcloud-mysql:
+    restart: always
+    image: hub.iot.store/turing-kubesphere/t-charts/mysql:5.7
+    container_name: turingcloud-mysql
+    ports:
+      - 3306:3306
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: Iot@123456
+    command:
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_general_ci
+      --explicit_defaults_for_timestamp=true
+      --lower_case_table_names=1
+      --max_allowed_packet=128M
+      --sql-mode="STRICT_TRANS_TABLES,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO"
+    #挂载文件&文件夹
+    volumes:
+       - /home/mysql/conf/my.cnf:/etc/mysql/my.cnf
+       - /home/mysql/logs:/var/log/mysql
+       - /home/mysql/data:/var/lib/mysql
+       - /home/mysql/initdb:/docker-entrypoint-initdb.d
+
+  turingcloud-redis:  
+    hostname: redis
+    image: hub.iot.store/turing-kubesphere/tmc-v1/redis:5.0.0
+    container_name: turingcloud-redis
+    restart: always
+    command: redis-server /usr/local/etc/redis/redis.conf
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - /home/redis/localtime:/etc/localtime:ro # 设置容器时区与宿主机保持一致
+      - /home/redis/redis.conf:/usr/local/etc/redis/redis.conf
+      - /home/redis/data:/data
+      - /home/redis/logs:/logs
+    ports:
+      - 6379:6379
+
+  turingcloud-rabbitmq:
+    image: hub.iot.store/turing-kubesphere/tmc-v1/rabbitmq:3.6.9-management
+    container_name: turingcloud-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_VHOST: tmc
+      RABBITMQ_DEFAULT_USER: rabbitmq
+      RABBITMQ_DEFAULT_PASS: Iot@123456
+      RABBITMQ_LOGS: /var/lib/rabbitmq/rabbitmq.log
+      RABBITMQ_SASL_LOGS: /var/lib/rabbitmq/rabbitmq-sasl.log
+      RABBITMQ_ERLANG_COOKIE: LZJADKXKLULIXFKAALGX 
+      TZ: Asia/Shanghai
+    volumes:
+      - /home/rabbitmq:/var/lib/rabbitmq
+    restart: always
+
+  turingcloud-minio:
+    image: hub.iot.store/turing-kubesphere/minio:latest
+    container_name: turingcloud-minio
+    ports:
+      - "9000:9000"
+    volumes: 
+      - "/home/minio/data:/data"
+    environment:
+      MINIO_ACCESS_KEY: "minio"
+      MINIO_SECRET_KEY: "Iot@123456"
+    command: server /data
+    restart: always
+
+  turingcloud-register:
+    image: hub.iot.store/turing-kubesphere/turingcloud-register:latest
+    container_name: turingcloud-register
+    restart: always
+    ports:
+      - "8848:8848"
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - "/home/dockerize:/usr/local/bin/dockerize"
+      - "/home/bootstrap.yml:/bootstrap.yml"
+    command: /usr/local/bin/dockerize -wait tcp://turingcloud-mysql:3306 -timeout 600s -wait-retry-interval 20s java -Xms800m -Xmx800m -Dfile.encoding=UTF-8 -Djava.security.egd=file:/dev/./urandom -jar turingcloud-register.jar --spring.config.location=/bootstrap.yml
+
+  turingcloud-gateway:
+    image: harbor.iot.store:8085/turing-kubesphere/turingcloud-gateway:SNAPSHOT-22
+    container_name: turingcloud-gateway
+    restart: always
+    ports:
+      - "9999:9999"
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - "/home/dockerize:/usr/local/bin/dockerize"
+    command: /usr/local/bin/dockerize -wait tcp://turingcloud-register:8848 -timeout 600s -wait-retry-interval 20s java -Xms800m -Xmx800m -Dfile.encoding=UTF-8 -Djava.security.egd=file:/dev/./urandom -jar turingcloud-gateway.jar
+
+  turingcloud-web:
+    #镜像名
+    image: harbor.iot.store:8085/turing-kubesphere/turingcloud-web-tezhijia:SNAPSHOT-562
+    #容器名
+    container_name: turingcloud-web
+    #映射Docker端口
+    ports:
+      - 80:80
+      - 443:443
+    #挂载文件&文件夹
+    volumes:
+      - /home/nginx/logs:/var/log/nginx
+    restart: always
+
+  turingcloud-auth:
+    image: harbor.iot.store:8085/turing-kubesphere/turingcloud-auth:SNAPSHOT-31
+    container_name: turingcloud-auth
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - "/home/dockerize:/usr/local/bin/dockerize"
+    command: /usr/local/bin/dockerize -wait tcp://turingcloud-gateway:9999 -timeout 600s -wait-retry-interval 20s java -Xms800m -Xmx800m -Dfile.encoding=UTF-8 -Djava.security.egd=file:/dev/./urandom -jar turingcloud-auth.jar
+
+  turingcloud-upms:
+    image: harbor.iot.store:8085/turing-kubesphere/turingcloud-upms:SNAPSHOT-300
+    container_name: turingcloud-upms
+    restart: always
+    ports:
+      - "4000:4000"
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - "/home/dockerize:/usr/local/bin/dockerize"
+    command: /usr/local/bin/dockerize -wait tcp://turingcloud-auth:3000 -timeout 600s -wait-retry-interval 20s java -Xms800m -Xmx800m -Dfile.encoding=UTF-8 -Djava.security.egd=file:/dev/./urandom -jar turingcloud-upms-biz.jar
+
+  turingcloud-daily:
+    image: harbor.iot.store:8085/turing-kubesphere/turingcloud-daily:SNAPSHOT-172
+    container_name: turingcloud-daily
+    restart: always
+    ports:
+      - "4003:4003"
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - "/home/dockerize:/usr/local/bin/dockerize"
+    command: /usr/local/bin/dockerize -wait tcp://turingcloud-upms:4000 -timeout 600s -wait-retry-interval 20s java -Xms800m -Xmx800m -Dfile.encoding=UTF-8 -Djava.security.egd=file:/dev/./urandom -jar turingcloud-daily-biz.jar
+
+  turingcloud-device:
+    image: harbor.iot.store:8085/turing-kubesphere/turingcloud-device:SNAPSHOT-577
+    container_name: turingcloud-device
+    restart: always
+    ports:
+      - "4001:4001"
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - "/home/dockerize:/usr/local/bin/dockerize"
+    command: /usr/local/bin/dockerize -wait tcp://turingcloud-upms:4000 -timeout 600s -wait-retry-interval 20s java -Xms800m -Xmx800m -Dfile.encoding=UTF-8 -Djava.security.egd=file:/dev/./urandom -jar turingcloud-device-biz.jar
+
+  turingcloud-tx-manager:
+    image: harbor.iot.store:8085/turing-kubesphere/turingcloud-tx-manager:latest
+    container_name: turingcloud-tx-manager
+    restart: always
+    ports:
+      - "5004:5004"
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - "/home/dockerize:/usr/local/bin/dockerize"
+    command: /usr/local/bin/dockerize -wait tcp://turingcloud-upms:4000 -timeout 600s -wait-retry-interval 20s java -Xms800m -Xmx800m -Dfile.encoding=UTF-8 -Djava.security.egd=file:/dev/./urandom -jar turingcloud-tx-manager.jar
+
+  turingcloud-activiti:
+    image: harbor.iot.store:8085/turing-kubesphere/turingcloud-activiti:latest
+    container_name: turingcloud-activiti
+    restart: always
+    ports:
+      - "5005:5005"
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - "/home/dockerize:/usr/local/bin/dockerize"
+    command: /usr/local/bin/dockerize -wait tcp://turingcloud-upms:4000 -timeout 600s -wait-retry-interval 20s java -Xms800m -Xmx800m -Dfile.encoding=UTF-8 -Djava.security.egd=file:/dev/./urandom -jar turingcloud-activiti.jar
+
+  turingcloud-dataanalysis:
+    image: harbor.iot.store:8085/turing-kubesphere/turingcloud-dataanalysis:SNAPSHOT-251
+    container_name: turingcloud-dataanalysis
+    restart: always
+    ports:
+      - "4005:4005"
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - "/home/dockerize:/usr/local/bin/dockerize"
+    command: /usr/local/bin/dockerize -wait tcp://turingcloud-upms:4000 -timeout 600s -wait-retry-interval 20s java -Xms800m -Xmx800m -Dfile.encoding=UTF-8 -Djava.security.egd=file:/dev/./urandom -jar turingcloud-dataanalysis-biz.jar
+
+  turingcloud-video:
+    image: harbor.iot.store:8085/turing-kubesphere/turingcloud-video:SNAPSHOT-185
+    container_name: turingcloud-video
+    restart: always
+    ports:
+      - "4002:4002"
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - "/home/dockerize:/usr/local/bin/dockerize"
+    command: /usr/local/bin/dockerize -wait tcp://turingcloud-upms:4000 -timeout 600s -wait-retry-interval 20s java -Xms800m -Xmx800m -Dfile.encoding=UTF-8 -Djava.security.egd=file:/dev/./urandom -jar turingcloud-video-biz.jar
+
+  turingcloud-daemon-quartz:
+    image: harbor.iot.store:8085/turing-kubesphere/turingcloud-daemon-quartz:SNAPSHOT-41
+    container_name: turingcloud-daemon-quartz
+    restart: always
+    ports:
+      - "5007:5007"
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - "/home/dockerize:/usr/local/bin/dockerize"
+    command: /usr/local/bin/dockerize -wait tcp://turingcloud-upms:4000 -timeout 600s -wait-retry-interval 20s java -Xms800m -Xmx800m -Dfile.encoding=UTF-8 -Djava.security.egd=file:/dev/./urandom -jar turingcloud-daemon-quartz.jar
+
+
+networks:
+  default:
+    external:
+      name: turingwork_default

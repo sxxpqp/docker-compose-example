@@ -1,0 +1,28 @@
+version: '3'
+services:
+  redis:
+    container_name: myredis
+    image: redis
+    ports:
+      - 6379:6379
+    command: redis-server /data/redis.conf
+    volumes:
+      - /home/redis/db:/data
+      - /home/redis/redis.conf:/etc/redis.conf
+    privileged: true
+    environment:
+      - TZ=Asia/Shanghai
+      - LANG=en_US.UTF-8
+    restart: always
+  db:
+    image: lw96/mysql5.7:latest
+    container_name: mysql-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: vGtB2E0ab0ibZLGY
+      MYSQL_USER: toimc
+      MYSQL_PASSWORD: a14NJdVnm8an
+    ports:
+      - '40115:3306'
+    volumes:
+      - '/home/mysql/db:/var/lib/mysql'

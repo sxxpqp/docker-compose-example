@@ -1,0 +1,2 @@
+#baotou线mysql数据库备份
+58 23 * * 6 /database/mysql/baotou_mysql_backup.sh
